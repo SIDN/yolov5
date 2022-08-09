@@ -801,7 +801,7 @@ def clip_coords(boxes, shape):
 
 
 def non_max_suppression(prediction,
-                        conf_thres=0.25,
+                        conf_thres: float | torch.Tensor = 0.8,
                         iou_thres=0.45,
                         classes=None,
                         agnostic=False,
@@ -816,10 +816,10 @@ def non_max_suppression(prediction,
 
     bs = prediction.shape[0]  # batch size
     nc = prediction.shape[2] - 5  # number of classes
-    xc = prediction[..., 4] > conf_thres  # candidates
+    xc = prediction[..., 4] > (conf_thres if isinstance(conf_thres, float) else min(conf_thres))  # candidates
 
     # Checks
-    assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
+    # assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
     assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
 
     # Settings
@@ -858,12 +858,13 @@ def non_max_suppression(prediction,
         box = xywh2xyxy(x[:, :4])
 
         # Detections matrix nx6 (xyxy, conf, cls)
-        if multi_label:
-            i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
-            x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
-        else:  # best class only
-            conf, j = x[:, 5:].max(1, keepdim=True)
-            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+        conf, j = x[:, 5:].max(1, keepdim=True)
+        x = torch.cat((box, conf, j.float()), 1)
+        if isinstance(conf_thres, float):
+            x = x[conf.view(-1) > conf_thres]
+        else:
+            x = x[torch.Tensor([c > conf_thres[ji] for c, ji in zip(conf.view(-1), j.int().view(-1))]).bool()].reshape(
+                -1, 6)
 
         # Filter by class
         if classes is not None:
